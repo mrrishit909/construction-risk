@@ -1,0 +1,230 @@
+{
+ "service": "construction-risk",
+ "run": "demo-1",
+ "tokens": {
+  "director": "gc-director-demo",
+  "scheduler": "gc-scheduler-demo",
+  "viewer": "gc-viewer-demo"
+ },
+ "steps": [
+  {
+   "title": "Load the project and fit the models",
+   "say": "An invented 8-storey tower at day 180 of a 310-day plan: 600 activities, their dependencies, trades and costs, 144 curtain-wall panels in a BIM list, four long-lead procurement items. Three models are fitted on twenty past projects of the same kind: how each trade's actual durations compare with plan, how late each supplier tends to be, and which activities run late. The response also carries what really happens to this project, which the models never see.",
+   "calls": [
+    {
+     "key": "load",
+     "as": "director",
+     "method": "POST",
+     "path": "/v1/project:load",
+     "body": {
+      "seed": 17
+     }
+    }
+   ]
+  },
+  {
+   "title": "A schedule update from the field",
+   "say": "The weekly Primavera export: one electrical zone finished, another advanced, as percent complete and actual dates. A finished activity cannot be moved backwards; an actual end without an actual start is refused.",
+   "calls": [
+    {
+     "key": "sched",
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/projects/{{load.result.project_id}}/schedule/import",
+     "body": {
+      "source": "P6 export week 26",
+      "activities": [
+       {
+        "external_id": "A0130",
+        "percent_complete": 1.0,
+        "actual_start": "2026-11-20",
+        "actual_end": "2026-11-27"
+       },
+       {
+        "external_id": "A0151",
+        "percent_complete": 0.2
+       }
+      ]
+     }
+    },
+    {
+     "key": "bad",
+     "expect_error": true,
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/projects/{{load.result.project_id}}/schedule/import",
+     "body": {
+      "source": "P6 export week 26",
+      "activities": [
+       {
+        "external_id": "A0101",
+        "percent_complete": 0.5
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "title": "BIM elements linked to activities",
+   "say": "An IFC export adds mechanical equipment and re-links one known curtain-wall panel. Elements point at the activity that installs them, which is what lets a site photo be compared with the schedule.",
+   "calls": [
+    {
+     "key": "bim",
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/projects/{{load.result.project_id}}/bim/import",
+     "body": {
+      "source": "IFC export rev C",
+      "elements": [
+       {
+        "guid": "AHU-L3-01",
+        "element_type": "air handling unit",
+        "level": "L3",
+        "activity_external_id": "A0145"
+       },
+       {
+        "guid": "AHU-L3-02",
+        "element_type": "air handling unit",
+        "level": "L3",
+        "activity_external_id": "A0146"
+       },
+       {
+        "guid": "CW-143-00",
+        "element_type": "curtain wall panel",
+        "level": "L3",
+        "activity_external_id": "A0144"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "title": "The forecast before anyone announces anything",
+   "say": "A thousand runs of the rest of the project. Finished activities keep their actual durations; in-progress ones keep what is left; the rest draw from their trade's history; undelivered procurement draws a lead-time ratio from history. The result: P10/P50/P90 finish, the chance of the planned date, cost exposure, the expected critical path and the risk register ranked by probability times days.",
+   "calls": [
+    {
+     "key": "fc0",
+     "as": "director",
+     "method": "GET",
+     "path": "/v1/projects/{{load.result.project_id}}/forecast"
+    },
+    {
+     "key": "cp0",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/projects/{{load.result.project_id}}/critical-path"
+    },
+    {
+     "key": "risks",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/projects/{{load.result.project_id}}/risks"
+    }
+   ]
+  },
+  {
+   "title": "What if: a supplier notice and a wet spell",
+   "say": "The switchgear supplier writes that delivery slips to day 235, and the forecast says three wet weeks start in five days. The scenario shows the forecast before and after, how far the P50 finish moves, and which activities join or leave the critical path. With apply, both events are recorded, so every forecast from now on includes them.",
+   "calls": [
+    {
+     "key": "what",
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/scenarios",
+     "body": {
+      "events": [
+       {
+        "kind": "procurement_delay",
+        "item": "switchgear",
+        "expected_day": 235
+       },
+       {
+        "kind": "weather",
+        "from_day": 185,
+        "to_day": 206
+       }
+      ],
+      "apply": true
+     }
+    },
+    {
+     "key": "fc1",
+     "as": "director",
+     "method": "GET",
+     "path": "/v1/projects/{{load.result.project_id}}/forecast"
+    }
+   ]
+  },
+  {
+   "title": "A site photo against the record",
+   "say": "A photo of the level-3 west elevation. The toy reader counts glazed panels in a schematic image (it is not a vision model and says so): 24 of 48 installed, where the schedule records 62.5% and the plan had the elevation finished weeks ago. The variance is written as an observation for the scheduler to resolve.",
+   "calls": [
+    {
+     "key": "photo",
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/progress/photos",
+     "body": {
+      "activity_external_id": "A0144",
+      "captured_at": "2026-11-28T10:30:00+00:00",
+      "png_base64": "iVBORw0KGgoAAAANSUhEUgAAAVQAAADICAIAAAA4I45uAAAFkElEQVR4nO3dXW5WVRiG4Q/TIXBQKP2Hqhh0Apw4DJsIlkKQESGBUsFEh+EJExACaKH//aAHDMLD7rWCoanmrc1zXWcrabJgp3ey2Ql5zi0v3xwBeT477T8AcDrED6HED6HED6HED6HED6HED6HED6HED6HED6HED6EmjvNDz579Pip0/fq37vWc/V79Vx39q/hHo9EXq09HJf5cu9Hcu/Kk6N715j84Xbu7VnPviwerw+PCys81926t/zA8zqw+rLl3b+3O8Hhl5XHNvW/Wbw2PX/64XnPv659WhsdrVb/PL9rf54/y2g+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hxA+hJk62pVGm29Io021plOm2NMp0Wxplui2NMq/bLY0yx9nSKHNuefl/9KcBynjth1Dih1BWeo9YB67hOZ+xld6vbhet1r581Hxpu3yraLX27ePmS9viatGK6+Za8+Xp6u2iFddXj5pvPVdWf6m5983a98PjtRu/1tz74ulyc+/dqrXcB81zXrr3W829G/e/++TPeO2HUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUOKHUBMn29Io021plOm2NMp0Wxplui2NMt2WRt29D07nOR9nS6OMlV4I5bUfQokfQlnpPWI9tobnfMZWer+5V7Rq+sf95kvM4urTmns3124Mjwt3iv6+Ww+bv+/Vm0VryK+eNF9wl24WreVuPGm+8C3deVx078Nbw+PX94p+r57fb36vZm8X3bv7qLn3o7z2QyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQyjxQ6iJk21plOm2NMp0Wxplui2NMt2WRt297ZZGmeftlkaZ42xplLHSC6G89kMo8UMoK71HrMfW8JzP2ErvwtTnoxJb47+Gx8mpxZp7D8ebw+PM0lzNvXsbO8Pj1KWpmnvHB+PhcXJuoebew52t4XHx4lLNvZvvNobHS5dnau49eLs3PE7NXK65d7z39pM/47UfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQokfQk2cbEujTLelUabb0ijTbWmU6bY0ynRbGmUO2i2NMsfZ0ihjpRdCee2HUOKHUFZ6j1iPreE5n7GV3pmpi6MSe+N3w+PkXNVK707zZXH6QtG9+++beyenqtZyx80XvvOz0zX3ftjdHx5npqvWkPebL7hzF6/U3Lvz7k1z73zRSu/OtpVe4B/4Nz+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EEj+EmjjZlkaZbkujTLelUabb0ijTbWmU6bY0yuy0Wxp19x5jS6OMlV4I5bUfQokfQlnpPWI9tobnfMZWeufni9ZUt7ebL0CT05dq7j3cP2jurVqtPWy/tF24MF9z7/v328Pj7OJszb27m7vD48Ji0Wrt1mbzpe38QtFz/rDVPufZont3d5t7P8prP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4QSP4SaONmWRpluS6Pu3lNare22NMp0Wxplui2NMh/aLY0yx9nSKGOlF0J57YdQ4odQ4odQ4odQ4odQ4odQ4odQ4odQ4odQ4odRpr8BbzuUnQaemKMAAAAASUVORK5CYII="
+     }
+    }
+   ]
+  },
+  {
+   "title": "A change order, simulated before it is decided",
+   "say": "The owner asks for upgraded finishes: 3 extra days on every remaining finishes activity, 450,000 and a 30-day extension requested. The impact run gives best, expected and worst completion against the current forecast and how the requested days compare with the simulated shift. Only a director can decide, and only after the impact run.",
+   "calls": [
+    {
+     "key": "co",
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/change-orders",
+     "body": {
+      "title": "Upgraded lobby and corridor finishes",
+      "amount": 450000,
+      "requested_days": 30,
+      "cause": "owner change",
+      "scope": {
+       "finishes": 3
+      }
+     }
+    },
+    {
+     "key": "early",
+     "expect_error": true,
+     "as": "director",
+     "method": "POST",
+     "path": "/v1/change-orders/{{co.change_order_id}}/decide?decision=approved"
+    },
+    {
+     "key": "impact",
+     "as": "scheduler",
+     "method": "POST",
+     "path": "/v1/change-orders/{{co.change_order_id}}/impact"
+    },
+    {
+     "key": "decide",
+     "as": "director",
+     "method": "POST",
+     "path": "/v1/change-orders/{{co.change_order_id}}/decide?decision=approved"
+    }
+   ]
+  },
+  {
+   "title": "The audit trail",
+   "say": "Who loaded the project, imported the schedule and the BIM, announced the disruptions, observed progress and approved the change: a hash-chained log that cannot be edited.",
+   "calls": [
+    {
+     "key": "audit",
+     "as": "director",
+     "method": "GET",
+     "path": "/v1/audit?limit=12"
+    }
+   ]
+  }
+ ]
+}

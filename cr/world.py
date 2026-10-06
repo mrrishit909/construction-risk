@@ -69,7 +69,7 @@ def build(seed=17):
 def actuals(w, seed, late=None, rain=RAIN_WINDOW):
     """What really happens: each activity's actual duration, each procurement item's actual delivery day."""
     r = np.random.default_rng([w["seed"], seed])
-    dur = np.array([a["duration"] * np.exp(r.normal(np.log(TRADES[a["trade"]][0]), TRADES[a["trade"]][1])) for a in w["activities"]])
+    dur = np.array([a["duration"] * np.exp(r.normal(np.log(TRADES[a["trade"]][0]), TRADES[a["trade"]][1])) * (1 + 0.025 * (a["floor"] or 0)) * (1.12 if a["procurement"] else 1) for a in w["activities"]])      # the same process the past projects came from
     late = LATE if late is None else late
     deliver = {k: int(v["lead_days"] * np.exp(r.normal(0.05, 0.15))) + late.get(k, 0) for k, v in w["procurement"].items()}
     return {"durations": np.maximum(1, dur.round()).astype(int), "deliveries": deliver, "rain": rain}

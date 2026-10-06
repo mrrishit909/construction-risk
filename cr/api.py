@@ -7,6 +7,7 @@ project-control API. Not built: Primavera/IFC adapters, weather feeds, a documen
 import base64
 import datetime
 import functools
+import hashlib
 import uuid
 from typing import Literal
 
@@ -77,9 +78,18 @@ def status(c, p, w):
     return st, known, rain, notices
 
 
+_FORECASTS = {}
+
+
 def run_forecast(w, st, known, rain, notices, now, runs=RUNS, extra=None, seed=0):
-    m = models(w["seed"])
-    return engine.forecast(w, st, m["trades"], m["procs"], now, runs=runs, seed=seed, rain=rain, deliveries_known={**notices, **known}, extra_dur=extra)
+    """The Monte Carlo is deterministic for a state of knowledge, so each state is simulated once. ponytail: a dict capped at 64 entries, a shared cache if there are many workers"""
+    key = hashlib.sha1(b"".join([str((w["seed"], sorted(known.items()), rain, sorted(notices.items()), now, runs, seed)).encode(), st["done"].tobytes(), st["started"].tobytes(), st["percent"].round(4).tobytes(), st["start"].tobytes(), st["actual_duration"].tobytes(), extra.tobytes() if extra is not None else b""])).hexdigest()
+    if key not in _FORECASTS:
+        if len(_FORECASTS) >= 64:
+            _FORECASTS.pop(next(iter(_FORECASTS)))
+        m = models(w["seed"])
+        _FORECASTS[key] = engine.forecast(w, st, m["trades"], m["procs"], now, runs=runs, seed=seed, rain=rain, deliveries_known={**notices, **known}, extra_dur=extra)
+    return _FORECASTS[key]
 
 
 def describe(fc):
@@ -254,7 +264,7 @@ def critical_path(project_id: uuid.UUID, ctx: Ctx = Depends(auth("project:read")
     acts = w["activities"]
     remaining = [i for i in range(len(acts)) if not st["done"][i]]
     return jsonable_encoder({"project_id": project_id, "expected_end": str(day(path["end"])), "critical": [{"external_id": f"A{i + 1:04d}", "name": acts[i]["name"], "trade": acts[i]["trade"], "start": str(day(path["start"][i])), "finish": str(day(path["finish"][i]))} for i in path["path"]],
-                             "float_days": {"zero": sum(path["float"][i] < 0.5 for i in remaining), "under_a_week": sum(0.5 <= path["float"][i] < 7 for i in remaining), "a_week_or_more": sum(path["float"][i] >= 7 for i in remaining)}, "remaining_activities": len(remaining)})
+                             "float_days": {"zero": int(sum(path["float"][i] < 0.5 for i in remaining)), "under_a_week": int(sum(0.5 <= path["float"][i] < 7 for i in remaining)), "a_week_or_more": int(sum(path["float"][i] >= 7 for i in remaining))}, "remaining_activities": len(remaining)})
 
 
 @app.get("/v1/projects/{project_id}/risks", tags=["forecast"], summary="(+) The risk register: procurement, outdoor work, trade performance")

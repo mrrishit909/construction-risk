@@ -182,5 +182,5 @@ def read_facade(png_bytes, cols=8):
         patch = img[y + 8:y + 22, x + 8:x + 32]
         blue = patch[..., 2].mean() - patch[..., 0].mean()
         total += 1
-        installed += blue > 60
+        installed += int(blue > 60)
     return {"panels": total, "installed": installed, "completion": round(installed / total, 3) if total else None, "confidence": 0.9 if total else 0.0, "method": "counts blue (glazed) panels in a schematic elevation; a toy reader, not a vision model"}

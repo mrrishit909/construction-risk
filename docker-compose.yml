@@ -2,6 +2,7 @@
 # docker compose run --rm test     -> the test suite against a throwaway database
 x-env: &env
   DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:-app-dev-only}@db/app
+  OMP_NUM_THREADS: "1"        # the forecast is Python loops over numpy; thread pools only fight each other under load
 
 services:
   db:
